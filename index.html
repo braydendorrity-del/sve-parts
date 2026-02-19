@@ -369,10 +369,13 @@ function renderParts(el, reqs) {
 }
 
 function cardHtml(r) {
-  return '<div class="card" onclick="openRequest(\'' + r.id + '\')">' +
+  const showDelete = (r.status === 'draft' && currentRole === 'tech');
+  const delBtn = showDelete ? '<button onclick="event.stopPropagation();deleteRequest(REQID)" style="background:none;border:1px solid var(--red);color:var(--red);border-radius:4px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;margin-top:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:1px;">🗑 DELETE</button>'.replace('REQID', "'" + r.id + "'") : '';
+  return '<div class="card" onclick="openRequest(OPENID)">'.replace('OPENID', "'" + r.id + "'") +
     '<div class="card-header"><div>' +
     '<div class="card-title">' + esc(r.machine || 'Unnamed Machine') + '</div>' +
     '<div class="card-meta">WO# ' + esc(r.workorder || '—') + ' &nbsp;·&nbsp; ' + esc(r.tech || '—') + ' &nbsp;·&nbsp; ' + ago(r.updatedAt) + '</div>' +
+    delBtn +
     '</div>' + badge(r.status) + '</div></div>';
 }
 
@@ -385,8 +388,17 @@ async function openNewForm() {
   openRequest(id);
 }
 
-window.openRequest = function(id) {
+async function deleteRequest(id) {
+  if (!confirm('Delete this draft?')) return;
+  await apiDelete('/requests/' + id);
+  _cache = _cache.filter(r => r.id !== id);
+  renderMain();
+}
+
+window.openRequest = async function(id) {
   currentId = id;
+  // Always fetch fresh from server so status is current
+  try { _cache = await apiGet('/requests'); } catch(e) { console.error('Refresh failed', e); }
   const r = byId(id);
   if (!r) return;
   tempParts  = r.parts      ? JSON.parse(JSON.stringify(r.parts))      : [];
@@ -729,6 +741,7 @@ window.addItem = addItem;
 window.removeItem = removeItem;
 window.syncItems = syncItems;
 window.dismissBanner = dismissBanner;
+window.deleteRequest = deleteRequest;
 })();
 </script>
 </body>
