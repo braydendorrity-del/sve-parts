@@ -177,6 +177,13 @@
 <div class="toast" id="toast"></div>
 
 <script>
+// Globals needed by dynamic HTML onclick handlers
+let tempParts = [];
+let tempPhotos = [];
+let tempItems = [];
+let decisions = {};
+
+(async function() {
 // ==================== CONFIG ====================
 const PUSH_SERVER = 'https://sve-push-server.onrender.com';
 const VAPID_KEY   = 'BErS69dImlqYjcvuJ2IVli4QDMIzzj7pSP99ICXV9OXkIz8hKiumFxNRIRNvW9dz4FIeMb3eybGHQdJg8cvmuJc';
@@ -184,10 +191,6 @@ const VAPID_KEY   = 'BErS69dImlqYjcvuJ2IVli4QDMIzzj7pSP99ICXV9OXkIz8hKiumFxNRIRN
 // ==================== STORE ====================
 let currentRole = 'tech';
 let currentId   = null;
-let tempParts   = [];
-let tempPhotos  = [];
-let tempItems   = [];
-let decisions   = {};
 let _cache      = [];  // local cache of requests
 
 // ---- API helpers ----
@@ -704,6 +707,29 @@ function showToast(msg) {
 setInterval(() => { renderMain(); renderBanners(); }, 30000);
 renderBanners();
 renderMain();
+
+// Expose functions to window for onclick handlers
+window.switchRole = switchRole;
+window.openNewForm = openNewForm;
+window.openRequest = openRequest;
+window.closeModal = closeModal;
+window.setupNotifications = setupNotifications;
+window.saveDraft = saveDraft;
+window.submitMgr = submitMgr;
+window.mgrDecide = mgrDecide;
+window.mgrDone = mgrDone;
+window.submitDecisions = submitDecisions;
+window.setDec = setDec;
+window.partsAction = partsAction;
+window.markInShop = markInShop;
+window.addPart = addPart;
+window.removePart = removePart;
+window.handlePhotos = handlePhotos;
+window.addItem = addItem;
+window.removeItem = removeItem;
+window.syncItems = syncItems;
+window.dismissBanner = dismissBanner;
+})();
 </script>
 </body>
 </html>
