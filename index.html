@@ -232,28 +232,38 @@ function b64ToUint8(b64) {
 
 async function setupNotifications() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    alert('Push not supported in this browser.\niPhone: use Safari\nAndroid: use Chrome'); return;
+    alert('Push not supported in this browser.\niPhone: use Safari + Add to Home Screen\nAndroid: use Chrome'); return;
   }
   const perm = await Notification.requestPermission();
-  if (perm !== 'granted') { showToast('Notifications blocked'); return; }
+  if (perm !== 'granted') { showToast('Notifications blocked — check browser settings'); return; }
 
   try {
-    let reg = await navigator.serviceWorker.getRegistration();
-    if (!reg) {
-      const sw = `self.addEventListener('push',e=>{const d=e.data?e.data.json():{title:'SVE Parts',body:'Update'};e.waitUntil(self.registration.showNotification(d.title,{body:d.body,icon:'https://em-content.zobj.net/source/apple/391/wrench_1f527.png',vibrate:[200,100,200],tag:'sve'}));});self.addEventListener('notificationclick',e=>e.notification.close());`;
-      const blob = new Blob([sw], { type: 'application/javascript' });
-      reg = await navigator.serviceWorker.register(URL.createObjectURL(blob));
-    }
+    // Use real sw.js file — required for iOS Safari
+    const swUrl = location.origin + location.pathname.replace('index.html','') + 'sw.js';
+    let reg = await navigator.serviceWorker.getRegistration(swUrl);
+    if (!reg) reg = await navigator.serviceWorker.register(swUrl);
     await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(VAPID_KEY) });
-    await fetch(PUSH_SERVER + '/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub) });
+    await fetchWithRetry(PUSH_SERVER + '/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub) });
     showToast('🔔 Notifications ON!');
-  } catch(e) { console.error(e); showToast('Notification setup failed'); }
+  } catch(e) { console.error(e); showToast('Notification setup failed: ' + e.message); }
+}
+
+async function fetchWithRetry(url, options, retries=2, delay=8000) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.ok) return res;
+    } catch(e) {
+      if (i < retries) { await new Promise(r => setTimeout(r, delay)); }
+      else throw e;
+    }
+  }
 }
 
 async function pushNotify(title, body) {
   try {
-    await fetch(PUSH_SERVER + '/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, body }) });
+    await fetchWithRetry(PUSH_SERVER + '/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, body }) });
   } catch(e) { console.error('Push failed', e); }
 }
 
