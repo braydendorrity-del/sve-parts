@@ -182,27 +182,41 @@ const PUSH_SERVER = 'https://sve-push-server.onrender.com';
 const VAPID_KEY   = 'BErS69dImlqYjcvuJ2IVli4QDMIzzj7pSP99ICXV9OXkIz8hKiumFxNRIRNvW9dz4FIeMb3eybGHQdJg8cvmuJc';
 
 // ==================== STORE ====================
-const STORE_KEY   = 'sve_parts_v2';
-const BANNER_KEY  = 'sve_banners_v2';
-
 let currentRole = 'tech';
 let currentId   = null;
 let tempParts   = [];
 let tempPhotos  = [];
 let tempItems   = [];
 let decisions   = {};
+let _cache      = [];  // local cache of requests
 
-function load()      { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; } }
-function save(r)     { localStorage.setItem(STORE_KEY, JSON.stringify(r)); }
-function byId(id)    { return load().find(r => r.id === id); }
-function update(id, u) {
-  const reqs = load();
-  const i = reqs.findIndex(r => r.id === id);
-  if (i !== -1) { Object.assign(reqs[i], u); save(reqs); }
+// ---- API helpers ----
+async function apiGet(path) {
+  const r = await fetchWithRetry(PUSH_SERVER + path, { method: 'GET' });
+  return r.json();
+}
+async function apiPost(path, body) {
+  const r = await fetchWithRetry(PUSH_SERVER + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return r.json();
+}
+async function apiPut(path, body) {
+  const r = await fetchWithRetry(PUSH_SERVER + path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return r.json();
+}
+async function apiDelete(path) {
+  const r = await fetchWithRetry(PUSH_SERVER + path, { method: 'DELETE' });
+  return r.json();
 }
 
-function loadBanners()   { try { return JSON.parse(localStorage.getItem(BANNER_KEY)) || []; } catch { return []; } }
-function saveBanners(b)  { localStorage.setItem(BANNER_KEY, JSON.stringify(b)); }
+async function loadAll() {
+  _cache = await apiGet('/requests');
+  return _cache;
+}
+function byId(id) { return _cache.find(r => r.id === id); }
+async function update(id, u) {
+  Object.assign(_cache.find(r => r.id === id) || {}, u);
+  await apiPut('/requests/' + id, u);
+}
 
 // ==================== STATUS ====================
 const S = {
@@ -268,23 +282,23 @@ async function pushNotify(title, body) {
 }
 
 // ==================== BANNERS ====================
-function addBanner(id, machine, wo) {
-  const b = loadBanners();
-  b.unshift({ bid: 'b' + Date.now(), id, machine, wo });
-  saveBanners(b);
-  renderBanners();
+async function addBanner(id, machine, wo) {
+  await apiPost('/banners', { bid: 'b' + Date.now(), id, machine, wo });
+  await renderBanners();
 }
-function dismissBanner(bid) {
-  saveBanners(loadBanners().filter(b => b.bid !== bid));
-  renderBanners();
+async function dismissBanner(bid) {
+  await apiDelete('/banners/' + bid);
+  await renderBanners();
 }
-function renderBanners() {
-  const el = document.getElementById('bannerArea');
-  const b = loadBanners();
-  el.innerHTML = b.map(x =>
-    '<div class="parts-in-banner">🟢 PARTS IN — ' + esc(x.machine) + ' &nbsp; WO#' + esc(x.wo) +
-    '<button onclick="dismissBanner(\'' + x.bid + '\')">Got it ✓</button></div>'
-  ).join('');
+async function renderBanners() {
+  try {
+    const el = document.getElementById('bannerArea');
+    const b = await apiGet('/banners');
+    el.innerHTML = b.map(x =>
+      '<div class="parts-in-banner">🟢 PARTS IN — ' + esc(x.machine) + ' &nbsp; WO#' + esc(x.wo) +
+      '<button onclick="dismissBanner(\'' + x.bid + '\')">Got it ✓</button></div>'
+    ).join('');
+  } catch(e) { console.error('Banner error', e); }
 }
 
 // ==================== ROLE ====================
@@ -296,13 +310,18 @@ function switchRole(role) {
 }
 
 // ==================== MAIN LIST ====================
-function renderMain() {
-  const reqs = load();
+async function renderMain() {
   const el = document.getElementById('mainContent');
-  el.innerHTML = '';
-  if (currentRole === 'tech')    renderTech(el, reqs);
-  else if (currentRole === 'manager') renderManager(el, reqs);
-  else renderParts(el, reqs);
+  el.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div>Loading...</div></div>';
+  try {
+    const reqs = await loadAll();
+    el.innerHTML = '';
+    if (currentRole === 'tech')         renderTech(el, reqs);
+    else if (currentRole === 'manager') renderManager(el, reqs);
+    else                                renderParts(el, reqs);
+  } catch(e) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div>Could not load requests.<br>Check your connection.</div></div>';
+  }
 }
 
 function renderTech(el, reqs) {
@@ -355,11 +374,11 @@ function cardHtml(r) {
 }
 
 // ==================== OPEN / CLOSE MODAL ====================
-function openNewForm() {
+async function openNewForm() {
   const id = 'req_' + Date.now();
-  const reqs = load();
-  reqs.unshift({ id, status:'draft', tech:'', machine:'', make:'', model:'', serial:'', workorder:'', notes:'', parts:[], photos:[], managerNotes:'', partsNotes:'', partsItems:[], quoteDecisions:{}, createdAt:Date.now(), updatedAt:Date.now() });
-  save(reqs);
+  const doc = { id, status:'draft', tech:'', machine:'', make:'', model:'', serial:'', workorder:'', notes:'', parts:[], photos:[], managerNotes:'', partsNotes:'', partsItems:[], quoteDecisions:{}, createdAt:Date.now(), updatedAt:Date.now() };
+  await apiPost('/requests', doc);
+  _cache.unshift(doc);
   openRequest(id);
 }
 
@@ -378,6 +397,7 @@ window.openRequest = function(id) {
 function closeModal() {
   document.getElementById('overlay').classList.remove('open');
   renderMain();
+  renderBanners();
 }
 
 function renderModal(r) {
@@ -439,13 +459,13 @@ function gatherTech() {
   return { tech: document.getElementById('f_tech')?.value||'', make, model, serial: document.getElementById('f_serial')?.value||'', workorder: document.getElementById('f_workorder')?.value||'', notes: document.getElementById('f_notes')?.value||'', machine: [make,model].filter(Boolean).join(' ')||'Unknown Machine', parts:[...tempParts], photos:[...tempPhotos], updatedAt:Date.now() };
 }
 
-function saveDraft() { update(currentId, {...gatherTech(), status:'draft'}); showToast('Draft saved'); renderModal(byId(currentId)); }
+async function saveDraft() { await update(currentId, {...gatherTech(), status:'draft'}); showToast('Draft saved'); renderModal(byId(currentId)); }
 
 function submitMgr() {
   const f = gatherTech();
   if (!f.tech) { alert('Enter your name.'); return; }
   if (!f.workorder) { alert('Enter a Work Order #.'); return; }
-  update(currentId, {...f, status:'pending'});
+  await update(currentId, {...f, status:'pending'});
   showToast('Submitted to Manager!');
   closeModal();
 }
@@ -513,20 +533,20 @@ function setDec(i, val) {
 function submitDecisions() {
   const notes = document.getElementById('m_notes')?.value || '';
   const anyApproved = Object.values(decisions).some(v => v === 'approve');
-  update(currentId, { quoteDecisions:{...decisions}, managerNotes:notes, status: anyApproved ? 'quoteapproved' : 'quoted', updatedAt:Date.now() });
+  await update(currentId, { quoteDecisions:{...decisions}, managerNotes:notes, status: anyApproved ? 'quoteapproved' : 'quoted', updatedAt:Date.now() });
   showToast(anyApproved ? 'Sent back to Parts!' : 'All parts declined — ticket closed');
   closeModal();
 }
 
-function mgrDecide(status) {
+async function mgrDecide(status) {
   const notes = document.getElementById('m_notes')?.value || '';
-  update(currentId, { status, managerNotes:notes, updatedAt:Date.now() });
+  await update(currentId, { status, managerNotes:notes, updatedAt:Date.now() });
   showToast(status === 'needsquote' ? 'Sent to Parts for Quote' : 'Approved — Parts notified');
   closeModal();
 }
 
-function mgrDone() {
-  update(currentId, { status:'quoted', updatedAt:Date.now() });
+async function mgrDone() {
+  await update(currentId, { status:'quoted', updatedAt:Date.now() });
   showToast('Marked complete!');
   closeModal();
 }
@@ -594,26 +614,26 @@ function itemRowsHtml() {
   ).join('');
 }
 
-function syncItems() { update(currentId, { partsItems:[...tempItems] }); }
+function syncItems() { apiPut('/requests/' + currentId, { partsItems:[...tempItems] }); }
 
 function addItem() {
   syncItems();
   tempItems.push({desc:'',qty:1,partnum:'',price:'',vendor:'',leadtime:''});
-  update(currentId, { partsItems:[...tempItems] });
+  apiPut('/requests/' + currentId, { partsItems:[...tempItems] });
   document.getElementById('itemsEdit').innerHTML = itemRowsHtml();
 }
 
 function removeItem(i) {
   syncItems();
   tempItems.splice(i,1);
-  update(currentId, { partsItems:[...tempItems] });
+  apiPut('/requests/' + currentId, { partsItems:[...tempItems] });
   document.getElementById('itemsEdit').innerHTML = itemRowsHtml();
 }
 
-function partsAction(nextStatus) {
+async function partsAction(nextStatus) {
   syncItems();
   const notes = document.getElementById('pi_notes')?.value || '';
-  update(currentId, { status:nextStatus, partsNotes:notes, partsItems:[...tempItems], updatedAt:Date.now() });
+  await update(currentId, { status:nextStatus, partsNotes:notes, partsItems:[...tempItems], updatedAt:Date.now() });
   const msgs = { reviewquote:'Quote sent to Manager!', partsorderd:'Parts marked as ordered!', callcustomer:'Quote sent to Manager!' };
   showToast(msgs[nextStatus] || 'Done!');
   closeModal();
@@ -621,8 +641,8 @@ function partsAction(nextStatus) {
 
 async function markInShop() {
   const r = byId(currentId);
-  update(currentId, { status:'partsinshop', updatedAt:Date.now() });
-  addBanner(currentId, r.machine, r.workorder);
+  await update(currentId, { status:'partsinshop', updatedAt:Date.now() });
+  await addBanner(currentId, r.machine, r.workorder);
   await pushNotify('🟢 Parts In Shop — ' + (r.machine||'Machine'), 'WO# ' + (r.workorder||'—') + ' — Parts have arrived. Ready to go!');
   showToast('Parts marked in shop — techs notified!');
   closeModal();
@@ -680,6 +700,8 @@ function showToast(msg) {
 }
 
 // ==================== BOOT ====================
+// Auto-refresh every 30 seconds so all devices stay in sync
+setInterval(() => { renderMain(); renderBanners(); }, 30000);
 renderBanners();
 renderMain();
 </script>
