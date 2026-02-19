@@ -464,7 +464,7 @@ function gatherTech() {
 
 async function saveDraft() { await update(currentId, {...gatherTech(), status:'draft'}); showToast('Draft saved'); renderModal(byId(currentId)); }
 
-function submitMgr() {
+async function submitMgr() {
   const f = gatherTech();
   if (!f.tech) { alert('Enter your name.'); return; }
   if (!f.workorder) { alert('Enter a Work Order #.'); return; }
@@ -533,7 +533,7 @@ function setDec(i, val) {
   if (db) db.className = 'appr-btn' + (val==='decline' ? ' sel-decline' : '');
 }
 
-function submitDecisions() {
+async function submitDecisions() {
   const notes = document.getElementById('m_notes')?.value || '';
   const anyApproved = Object.values(decisions).some(v => v === 'approve');
   await update(currentId, { quoteDecisions:{...decisions}, managerNotes:notes, status: anyApproved ? 'quoteapproved' : 'quoted', updatedAt:Date.now() });
