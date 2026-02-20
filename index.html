@@ -224,15 +224,12 @@ async function update(id, u) {
 // ==================== STATUS ====================
 const S = {
   draft:         { label: 'Draft',           cls: 'badge-draft' },
-  pending:       { label: 'Pending Review',  cls: 'badge-pending' },
-  needsquote:    { label: 'Needs Quote',     cls: 'badge-needsquote' },
-  approved:      { label: 'Approved',        cls: 'badge-approved' },
+  quoting:       { label: 'Quoting',         cls: 'badge-needsquote' },
   reviewquote:   { label: 'Review Quote',    cls: 'badge-reviewquote' },
   quoteapproved: { label: 'Quote Approved',  cls: 'badge-quoteapproved' },
+  quotedeclined: { label: 'Quote Declined',  cls: 'badge-quoted' },
   partsorderd:   { label: 'Parts Ordered',   cls: 'badge-partsorderd' },
   partsinshop:   { label: 'Parts In Shop',   cls: 'badge-partsinshop' },
-  callcustomer:  { label: 'Call Customer',   cls: 'badge-callcustomer' },
-  quoted:        { label: 'Quoted',          cls: 'badge-quoted' },
 };
 
 function badge(status) {
@@ -340,11 +337,9 @@ function renderTech(el, reqs) {
 
 function renderManager(el, reqs) {
   const sections = [
-    { label: '⚡ Needs Your Review',   filter: r => r.status === 'pending' },
-    { label: '📝 Quote Ready — Review', filter: r => r.status === 'reviewquote' },
-    { label: '📞 Call Customer',        filter: r => r.status === 'callcustomer' },
-    { label: 'In Progress',             filter: r => ['needsquote','approved','quoteapproved','partsorderd'].includes(r.status) },
-    { label: 'Complete',                filter: r => ['partsinshop','quoted'].includes(r.status) },
+    { label: '⚡ Needs Your Approval',  filter: r => r.status === 'reviewquote' },
+    { label: 'In Progress',             filter: r => ['quoting','quoteapproved','partsorderd'].includes(r.status) },
+    { label: 'Complete',                filter: r => ['partsinshop','quotedeclined'].includes(r.status) },
   ];
   let any = false;
   sections.forEach(s => {
@@ -356,9 +351,10 @@ function renderManager(el, reqs) {
 
 function renderParts(el, reqs) {
   const sections = [
-    { label: '⚡ Action Needed',       filter: r => ['needsquote','approved','quoteapproved'].includes(r.status) },
+    { label: '⚡ Quote Needed',        filter: r => r.status === 'quoting' },
+    { label: '📦 Approved — Order Now', filter: r => r.status === 'quoteapproved' },
     { label: '⏳ Waiting on Delivery', filter: r => r.status === 'partsorderd' },
-    { label: 'Complete',               filter: r => ['partsinshop','quoted','callcustomer'].includes(r.status) },
+    { label: 'Complete',               filter: r => ['partsinshop','quotedeclined'].includes(r.status) },
   ];
   let any = false;
   sections.forEach(s => {
@@ -442,7 +438,7 @@ function techForm(r) {
     '<div class="photo-previews" id="photoPrev">' + tempPhotos.map(p => '<img class="photo-preview" src="' + p + '">').join('') + '</div>' +
     '<hr class="divider"><div class="form-group"><label>Notes</label><textarea id="f_notes" placeholder="Describe the issue...">' + esc(r.notes) + '</textarea></div>' +
     '<div class="btn-row"><button class="btn btn-outline" onclick="saveDraft()">Save Draft</button>' +
-    '<button class="btn btn-yellow" onclick="submitMgr()">Submit to Manager →</button></div>';
+    '<button class="btn btn-yellow" onclick="submitMgr()">Submit to Parts →</button></div>';
 }
 
 function partRowsHtml() {
@@ -480,8 +476,8 @@ async function submitMgr() {
   const f = gatherTech();
   if (!f.tech) { alert('Enter your name.'); return; }
   if (!f.workorder) { alert('Enter a Work Order #.'); return; }
-  await update(currentId, {...f, status:'pending'});
-  showToast('Submitted to Manager!');
+  await update(currentId, {...f, status:'quoting'});
+  showToast('Submitted to Parts!');
   closeModal();
 }
 
@@ -489,8 +485,10 @@ function techReadOnly(r) {
   let h = infoBlock(r) + partsRO(r.parts);
   if (r.photos?.length) h += '<div class="photo-previews" style="margin-top:10px;">' + r.photos.map(p=>'<img class="photo-preview" src="'+p+'">').join('') + '</div>';
   if (r.partsItems?.length) h += '<hr class="divider"><div class="section-label">Parts Details</div>' + itemsRO(r.partsItems, r.quoteDecisions);
+  if (r.partsNotes) h += '<hr class="divider"><div class="section-label">Parts Notes</div><div class="info-block">' + esc(r.partsNotes) + '</div>';
   if (r.managerNotes) h += '<hr class="divider"><div class="section-label">Manager Notes</div><div class="info-block">' + esc(r.managerNotes) + '</div>';
   if (r.status === 'partsinshop') h += '<div style="background:#052e16;border:1px solid var(--green);border-radius:6px;padding:14px;margin-top:10px;font-family:Barlow Condensed,sans-serif;font-weight:700;color:var(--green);font-size:18px;text-align:center;">🟢 YOUR PARTS ARE IN THE SHOP</div>';
+  if (r.status === 'quotedeclined') h += '<div style="background:#3b0000;border:1px solid var(--red);border-radius:6px;padding:14px;margin-top:10px;font-family:Barlow Condensed,sans-serif;font-weight:700;color:var(--red);font-size:18px;text-align:center;">✕ QUOTE DECLINED</div>';
   return h;
 }
 
@@ -499,22 +497,11 @@ function managerView(r) {
   let h = infoBlock(r) + partsRO(r.parts);
   if (r.photos?.length) h += '<div class="photo-previews" style="margin-top:10px;">' + r.photos.map(p=>'<img class="photo-preview" src="'+p+'">').join('') + '</div>';
 
-  if (r.status === 'pending') {
-    h += '<hr class="divider"><div class="section-label">Your Decision</div>' +
-      '<div class="form-group"><label>Notes (optional)</label><textarea id="m_notes" placeholder="Notes for parts...">' + esc(r.managerNotes) + '</textarea></div>' +
-      '<div class="btn-row"><button class="btn btn-orange" onclick="mgrDecide(\'needsquote\')">📝 Needs Quote</button>' +
-      '<button class="btn btn-green" onclick="mgrDecide(\'approved\')">✅ Approve Order</button></div>';
-
-  } else if (r.status === 'reviewquote') {
+  if (r.status === 'reviewquote') {
     h += '<hr class="divider"><div class="section-label">Quote from Parts — Approve or Decline Each Part</div>' +
       quoteReviewHtml(r) +
       '<div class="form-group" style="margin-top:14px;"><label>Notes (optional)</label><textarea id="m_notes" placeholder="Notes for parts...">' + esc(r.managerNotes) + '</textarea></div>' +
       '<div class="btn-row"><button class="btn btn-yellow" onclick="submitDecisions()">Submit Decisions →</button></div>';
-
-  } else if (r.status === 'callcustomer') {
-    h += '<hr class="divider"><div class="section-label">Quote Details</div>' + itemsRO(r.partsItems, r.quoteDecisions);
-    if (r.partsNotes) h += '<div class="info-block" style="margin-top:8px;">' + esc(r.partsNotes) + '</div>';
-    h += '<div class="btn-row" style="margin-top:14px;"><button class="btn btn-green" onclick="mgrDone()">✅ Customer Called / Done</button></div>';
 
   } else {
     if (r.partsItems?.length) h += '<hr class="divider"><div class="section-label">Parts Details</div>' + itemsRO(r.partsItems, r.quoteDecisions);
@@ -548,7 +535,7 @@ function setDec(i, val) {
 async function submitDecisions() {
   const notes = document.getElementById('m_notes')?.value || '';
   const anyApproved = Object.values(decisions).some(v => v === 'approve');
-  await update(currentId, { quoteDecisions:{...decisions}, managerNotes:notes, status: anyApproved ? 'quoteapproved' : 'quoted', updatedAt:Date.now() });
+  await update(currentId, { quoteDecisions:{...decisions}, managerNotes:notes, status: anyApproved ? 'quoteapproved' : 'quotedeclined', updatedAt:Date.now() });
   showToast(anyApproved ? 'Sent back to Parts!' : 'All parts declined — ticket closed');
   closeModal();
 }
@@ -556,7 +543,7 @@ async function submitDecisions() {
 async function mgrDecide(status) {
   const notes = document.getElementById('m_notes')?.value || '';
   await update(currentId, { status, managerNotes:notes, updatedAt:Date.now() });
-  showToast(status === 'needsquote' ? 'Sent to Parts for Quote' : 'Approved — Parts notified');
+  showToast('Decision saved!');
   closeModal();
 }
 
@@ -571,35 +558,23 @@ function partsView(r) {
   let h = infoBlock(r) + partsRO(r.parts);
   if (r.photos?.length) h += '<div class="photo-previews" style="margin-top:10px;">' + r.photos.map(p=>'<img class="photo-preview" src="'+p+'">').join('') + '</div>';
 
-  const editable = ['needsquote','approved','quoteapproved'].includes(r.status);
-
-  if (editable) {
-    h += '<hr class="divider"><div class="section-label">Parts Details</div>' +
+  if (r.status === 'quoting') {
+    h += '<hr class="divider"><div class="section-label">Parts Details — Fill In Quote</div>' +
       '<div class="parts-list" id="itemsEdit">' + itemRowsHtml() + '</div>' +
       '<button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="addItem()">+ Add Line</button>' +
-      '<div class="form-group" style="margin-top:14px;"><label>Notes for Manager</label><textarea id="pi_notes" placeholder="Any notes...">' + esc(r.partsNotes) + '</textarea></div>';
+      '<div class="form-group" style="margin-top:14px;"><label>Notes for Manager</label><textarea id="pi_notes" placeholder="Any notes...">' + esc(r.partsNotes) + '</textarea></div>' +
+      '<hr class="divider">' +
+      '<div class="btn-row"><button class="btn btn-orange" onclick="partsAction(\'reviewquote\')">📝 Send Quote to Manager</button></div>';
 
-    // If quoteapproved — show manager decisions so parts guy knows what to order
-    if (r.status === 'quoteapproved' && r.quoteDecisions && Object.keys(r.quoteDecisions).length) {
-      h += '<hr class="divider"><div class="section-label">Manager Decisions</div>';
-      (r.partsItems||[]).forEach((p,i) => {
-        const dec = r.quoteDecisions[i];
-        if (dec) h += '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;">' +
-          '<span class="dec-tag ' + (dec==='approve'?'dec-tag-approve':'dec-tag-decline') + '">' + (dec==='approve'?'✅ ORDER':'✕ SKIP') + '</span>' +
-          esc(p.desc||'—') + '</div>';
-      });
-    }
-
-    h += '<hr class="divider">';
-    if (r.status === 'needsquote') {
-      h += '<div class="btn-row"><button class="btn btn-orange" onclick="partsAction(\'reviewquote\')">📝 Send Quote to Manager</button></div>';
-    } else if (r.status === 'approved') {
-      h += '<div class="btn-row">' +
-        '<button class="btn btn-green" onclick="partsAction(\'partsorderd\')">📦 Parts Ordered</button>' +
-        '<button class="btn btn-orange" onclick="partsAction(\'callcustomer\')">📞 Send Quote to Mgr</button></div>';
-    } else if (r.status === 'quoteapproved') {
-      h += '<div class="btn-row"><button class="btn btn-green" onclick="partsAction(\'partsorderd\')">📦 Mark Parts Ordered</button></div>';
-    }
+  } else if (r.status === 'quoteapproved') {
+    h += '<hr class="divider"><div class="section-label">Manager Approved — Order These Parts</div>';
+    (r.partsItems||[]).forEach((p,i) => {
+      const dec = r.quoteDecisions ? r.quoteDecisions[i] : null;
+      if (dec) h += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;border-bottom:1px solid var(--border);">' +
+        '<span class="dec-tag ' + (dec==='approve'?'dec-tag-approve':'dec-tag-decline') + '">' + (dec==='approve'?'✅ ORDER':'✕ SKIP') + '</span>' +
+        esc(p.desc||'—') + ' — ' + esc(p.price||'') + '</div>';
+    });
+    h += '<div class="btn-row" style="margin-top:14px;"><button class="btn btn-green" onclick="partsAction(\'partsorderd\')">📦 Mark Parts Ordered</button></div>';
 
   } else if (r.status === 'partsorderd') {
     if (r.partsItems?.length) h += '<hr class="divider"><div class="section-label">Parts Details</div>' + itemsRO(r.partsItems, r.quoteDecisions);
@@ -649,7 +624,7 @@ async function partsAction(nextStatus) {
   syncItems();
   const notes = document.getElementById('pi_notes')?.value || '';
   await update(currentId, { status:nextStatus, partsNotes:notes, partsItems:[...tempItems], updatedAt:Date.now() });
-  const msgs = { reviewquote:'Quote sent to Manager!', partsorderd:'Parts marked as ordered!', callcustomer:'Quote sent to Manager!' };
+  const msgs = { reviewquote:'Quote sent to Manager!', partsorderd:'Parts marked as ordered!' };
   showToast(msgs[nextStatus] || 'Done!');
   closeModal();
 }
